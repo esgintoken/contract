@@ -8,9 +8,9 @@ import "../com/ReentrancyGuard.sol";
 
 /**
  * @title ESGIN
- * @dev Vesting 컨트랙트와 함께 사용할 표준 ERC20 토큰
- *      초기 공급량(10억)을 owner에게 발행하며, owner가 Vesting 컨트랙트로 전송 후 배분
- * @notice Owner 및 addApproved로 등록된 주소는 신뢰 가정됨. transferWithLock/transferWithLockEasy는 해당 주소만 호출 가능.
+ * @dev Standard ERC20 token to be used with Vesting contract
+ *      Mints initial supply (1B) to owner; owner transfers to Vesting contract for distribution
+ * @notice Owner and addApproved addresses are assumed trusted. transferWithLock/transferWithLockEasy are callable only by those addresses.
  */
 contract ESGIN is Context, IERC20, Ownable, ReentrancyGuard {
     mapping(address => uint256) private _balances;
@@ -48,10 +48,10 @@ contract ESGIN is Context, IERC20, Ownable, ReentrancyGuard {
     event ApprovedRemoved(address indexed addr);
 
     /**
-     * @dev Vesting 스케줄 총량에 맞춰 초기 공급량 10억(1e9 * 1e18) 발행
-     * @param name_ 토큰 이름
-     * @param symbol_ 토큰 심볼
-     * @param initialOwner_ 초기 소유자 (발행량 수령 주소, 보통 Vesting 배포자)
+     * @dev Mints initial supply 1B (1e9 * 1e18) to match Vesting schedule total
+     * @param name_ Token name
+     * @param symbol_ Token symbol
+     * @param initialOwner_ Initial owner (recipient of minted tokens, usually Vesting deployer)
      */
     constructor(
         string memory name_,
@@ -60,7 +60,7 @@ contract ESGIN is Context, IERC20, Ownable, ReentrancyGuard {
     ) Ownable(initialOwner_) {
         _name = name_;
         _symbol = symbol_;
-        _totalSupply = 1_000_000_000 * 10 ** _decimals; // 10억
+        _totalSupply = 1_000_000_000 * 10 ** _decimals; // 1 billion
         _balances[initialOwner_] = _totalSupply;
         emit Transfer(address(0), initialOwner_, _totalSupply);
         lockCooldownPeriod = 1 hours;
@@ -103,14 +103,14 @@ contract ESGIN is Context, IERC20, Ownable, ReentrancyGuard {
         return true;
     }
 
-    /// @dev allowance를 안전하게 증가 (approve race 완화)
+    /// @dev Safely increase allowance (mitigates approve race)
     function increaseAllowance(address spender, uint256 addedValue) public virtual returns (bool) {
         address owner = _msgSender();
         _approve(owner, spender, allowance(owner, spender) + addedValue);
         return true;
     }
 
-    /// @dev allowance를 안전하게 감소
+    /// @dev Safely decrease allowance
     function decreaseAllowance(address spender, uint256 requestedDecrease) public virtual returns (bool) {
         address owner = _msgSender();
         uint256 currentAllowance = allowance(owner, spender);
