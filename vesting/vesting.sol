@@ -4,37 +4,39 @@ pragma solidity ^0.8.20;
 import "../com/IERC20.sol";
 import "../com/SafeERC20.sol";
 import "../com/Ownable.sol";
+import "../com/ReentrancyGuard.sol";
 
 /**
- * @title FoundationTokenDistributor
- * @dev Contract that distributes foundation tokens to 5 wallets according to a predefined schedule (based on distribution plan)
+ * @title ESGIN Vesting
+ * @dev Predefined distribution plan for ESGIN tokens.
  */
-contract Vesting is Ownable {
+contract Vesting is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable token;
     uint256 public immutable startTimestamp;
-    uint256 public constant MONTH =  30 days; //for testing set to 30 minutes
+    uint256 public constant MONTH = 30 days; 
 
     struct Schedule {
-        address beneficiary;    // beneficiary wallet address
-        uint256 totalAmount;   // total allocation
-        uint256 releasedAmount; // already released amount
-        uint256 cliffMonths;   // cliff months
-        uint256 totalMonths;   // total number of payments
-        uint256 monthlyAmount; // monthly amount (last month pays remaining balance in full)
+        address beneficiary;
+        uint256 totalAmount;
+        uint256 releasedAmount;
+        uint256 cliffMonths;
+        uint256 totalMonths;
+        uint256 monthlyAmount;
     }
 
     mapping(string => Schedule) public schedules;
     string[] public roles = ["reward", "bank", "team", "liquidity", "investment"];
 
-    event TokensReleased(string role, address beneficiary, uint256 amount);
+    event TokensReleased(string role, address indexed beneficiary, uint256 amount);
 
     constructor(address _token, address _initialOwner) Ownable(_initialOwner) {
+        require(_token != address(0), "Vesting: token is zero");
         token = IERC20(_token);
         startTimestamp = block.timestamp;
 
-        // 1. Reward Pool: 45% 450M, 60 months linear (M2~)
+        // 1. Reward Pool: 450M, 60 months linear (M1~)
         schedules["reward"] = Schedule({
             beneficiary: 0x453C16F155DaBF8756e7f86958d35D47774BC724,
             totalAmount: 450_000_000 * 10**18,
@@ -44,7 +46,7 @@ contract Vesting is Ownable {
             monthlyAmount: 7_500_000 * 10**18
         });
 
-        // 2. ESG Bank Pool: 15% 150M, 60 months linear (M2~)
+        // 2. ESG Bank Pool: 150M, 60 months linear (M1~)
         schedules["bank"] = Schedule({
             beneficiary: 0x3602F2D84860A054240D7DB14a1210Df508324dE,
             totalAmount: 150_000_000 * 10**18,
@@ -54,29 +56,29 @@ contract Vesting is Ownable {
             monthlyAmount: 2_500_000 * 10**18
         });
 
-        // 3. Team: 15% 150M, initial 50M(releaseInitial) + 12m cliff + 24 months linear (M13~M36)
+        // 3. Team: 150M, initial 50M + 12m cliff + 24m linear (M12~M35)
         schedules["team"] = Schedule({
             beneficiary: 0xABbcB65e9201369c905B211102f2f183693CBc03,
             totalAmount: 150_000_000 * 10**18,
             releasedAmount: 0,
             cliffMonths: 12,
             totalMonths: 24,
-            monthlyAmount: 4_166_666_67 * 10**16 // 100M / 24
+            monthlyAmount: 4_166_666_67 * 10**16
         });
 
-        // 4. Liquidity: 15% 150M, M1 initial 100M + M13~24 50M in 12 installments
+        // 4. Liquidity: 150M, M1 100M + M12~23 50M
         schedules["liquidity"] = Schedule({
             beneficiary: 0xB833bF8a7F04782d6d83FDDFBe87DFec654f86b8,
             totalAmount: 150_000_000 * 10**18,
             releasedAmount: 0,
             cliffMonths: 12,
             totalMonths: 12,
-            monthlyAmount: 4_166_666_67 * 10**16 // 50M / 12
+            monthlyAmount: 4_166_666_67 * 10**16
         });
 
-        // 5. Investment: 10% 100M, M1 100% unlocked
+        // 5. Investment: 100M, M1 100% unlocked
         schedules["investment"] = Schedule({
-            beneficiary: 0x2CE059189286267922b33183B8Fa983E131Da842, // replace with actual address
+            beneficiary: 0x2CE059189286267922b33183B8Fa983E131Da842,
             totalAmount: 100_000_000 * 10**18,
             releasedAmount: 0,
             cliffMonths: 1,
@@ -86,34 +88,37 @@ contract Vesting is Ownable {
     }
 
     /**
-     * @dev Used to manually send initial Liquidity amount (100M), Team initial amount (50M), and Investment initial amount (100M) right after deployment
+     * @dev Manually send initial allocations. Call this once after the contract is funded with tokens.
      */
-    function releaseInitial() external onlyOwner {
-        Schedule storage s = schedules["liquidity"];
-        require(s.releasedAmount == 0, "Liquidity initial already released");
-        uint256 liquidityAmount = 100_000_000 * 10**18;
-        s.releasedAmount += liquidityAmount;
-        token.safeTransfer(s.beneficiary, liquidityAmount);
-        emit TokensReleased("liquidity_initial", s.beneficiary, liquidityAmount);
+    function releaseInitial() external onlyOwner nonReentrant {
+        // Liquidity initial 100M
+        Schedule storage liq = schedules["liquidity"];
+        if (liq.releasedAmount == 0) {
+            uint256 amount = 100_000_000 * 10**18;
+            liq.releasedAmount += amount;
+            token.safeTransfer(liq.beneficiary, amount);
+            emit TokensReleased("liquidity_initial", liq.beneficiary, amount);
+        }
 
+        // Team initial 50M
         Schedule storage team = schedules["team"];
-        require(team.releasedAmount == 0, "Team initial already released");
-        uint256 teamAmount = 50_000_000 * 10**18;
-        team.releasedAmount += teamAmount;
-        token.safeTransfer(team.beneficiary, teamAmount);
-        emit TokensReleased("team_initial", team.beneficiary, teamAmount);
+        if (team.releasedAmount == 0) {
+            uint256 amount = 50_000_000 * 10**18;
+            team.releasedAmount += amount;
+            token.safeTransfer(team.beneficiary, amount);
+            emit TokensReleased("team_initial", team.beneficiary, amount);
+        }
 
+        // Investment 100%
         Schedule storage inv = schedules["investment"];
-        require(inv.releasedAmount == 0, "Investment initial already released");
-        inv.releasedAmount += inv.totalAmount;
-        token.safeTransfer(inv.beneficiary, inv.totalAmount);
-        emit TokensReleased("investment_initial", inv.beneficiary, inv.totalAmount);
+        if (inv.releasedAmount == 0) {
+            inv.releasedAmount += inv.totalAmount;
+            token.safeTransfer(inv.beneficiary, inv.totalAmount);
+            emit TokensReleased("investment_initial", inv.beneficiary, inv.totalAmount);
+        }
     }
 
-    /**
-     * @dev Calculates and transfers the currently releasable amount for all wallets
-     */
-    function releaseAll() external onlyOwner {
+    function releaseAll() external onlyOwner nonReentrant {
         for (uint i = 0; i < roles.length; i++) {
             _release(roles[i]);
         }
@@ -121,8 +126,8 @@ contract Vesting is Ownable {
 
     function _release(string memory role) internal {
         Schedule storage s = schedules[role];
-        uint256 vestionAmount = _calculateVested(s, role);
-        uint256 releasable = vestionAmount - s.releasedAmount;
+        uint256 vested = _calculateVested(s, role);
+        uint256 releasable = vested - s.releasedAmount;
 
         if (releasable > 0) {
             s.releasedAmount += releasable;
@@ -132,55 +137,47 @@ contract Vesting is Ownable {
     }
 
     /**
-     * @dev Calculates the total cumulative amount to be released based on current time
-     *      Caps at totalAmount on the last month to pay remaining balance in full
+     * @dev First linear payment occurs in the month when cliff ends (on day 30 of that month).
      */
     function _calculateVested(Schedule storage s, string memory role) internal view returns (uint256) {
+        // Before cliff ends, return only already-released amount (e.g. initial allocation)
         if (block.timestamp < startTimestamp + (s.cliffMonths * MONTH)) {
-            // Before cliff period, return only initial release amount (e.g. Liquidity initial 100M)
             return s.releasedAmount;
         }
 
         uint256 monthsPassed = (block.timestamp - startTimestamp) / MONTH;
-        uint256 activeMonths = monthsPassed - s.cliffMonths;
+        
+        // When monthsPassed equals cliffMonths, activeMonths becomes 1 (first payment occurs)
+        uint256 activeMonths = monthsPassed - s.cliffMonths + 1;
 
         if (activeMonths >= s.totalMonths) {
-            // Return total amount when period ends -> pay remaining balance in full on last month release
             return s.totalAmount;
         }
 
-        // Liquidity initial 100M and Team initial 50M were released in releaseInitial, so account for that
         uint256 baseAmount = 0;
-        if (keccak256(bytes(role)) == keccak256(bytes("liquidity"))) {
+        bytes32 roleHash = keccak256(bytes(role));
+        if (roleHash == keccak256(bytes("liquidity"))) {
             baseAmount = 100_000_000 * 10**18;
-        } else if (keccak256(bytes(role)) == keccak256(bytes("team"))) {
+        } else if (roleHash == keccak256(bytes("team"))) {
             baseAmount = 50_000_000 * 10**18;
         }
+        
         uint256 linearAmount = baseAmount + (activeMonths * s.monthlyAmount);
-        // Cap to prevent exceeding totalAmount and ensure remaining balance paid in full on last month
         return linearAmount > s.totalAmount ? s.totalAmount : linearAmount;
     }
 
-    /**
-     * @dev Returns the sum of total vested amount for all roles up to the current time
-     */
     function totalVestedAmount() external view returns (uint256) {
         uint256 sum = 0;
         for (uint i = 0; i < roles.length; i++) {
-            Schedule storage s = schedules[roles[i]];
-            sum += _calculateVested(s, roles[i]);
+            sum += _calculateVested(schedules[roles[i]], roles[i]);
         }
         return sum;
     }
 
-    /**
-     * @dev Returns the sum of total released amount for all roles up to the current time
-     */
     function totalReleasedAmount() external view returns (uint256) {
         uint256 sum = 0;
         for (uint i = 0; i < roles.length; i++) {
-            Schedule storage s = schedules[roles[i]];
-            sum += s.releasedAmount;
+            sum += schedules[roles[i]].releasedAmount;
         }
         return sum;
     }
