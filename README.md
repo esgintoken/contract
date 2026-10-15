@@ -7,6 +7,12 @@ Solidity smart contracts for the ESGIN token and vesting distribution.
 - **ESGIN**: ERC20 token (initial supply 1 billion, with lock-up functionality)
 - **Vesting**: Contract that distributes foundation tokens to 5 wallets according to a predefined schedule
 
+## Ownership Status
+
+Ownership of the ESGIN token contract has been renounced.
+Admin-only functions (`addApproved`, `removeApproved`, `setLockCooldownPeriod`, ownership transfer) are permanently disabled.
+Details: [Ownership Renouncement Notice](OWNERSHIP_RENOUNCEMENT.md)
+
 ## Project Structure
 
 ```
